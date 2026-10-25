@@ -1,6 +1,7 @@
 ---
 name: node-harness
 description: Recursive, interface-first harness for large or multi-agent work. Each agent settles interfaces before internals, then implements, divides the work across subagents with contracts and acceptance checks, or continues serially. Use when the user asks to run the node harness or invokes /build, when they give a large task they want split across subagents or done faster in parallel, when a parent agent's task text says to use the node-harness skill, or when asked to set up the node harness in a project. Not for small everyday edits.
+compatibility: "Optional companion skills from github.com/mattpocock/skills: grilling, domain-modeling, tdd, code-review, prototype, handoff, retro. Works without them."
 ---
 
 # Node harness
@@ -121,4 +122,4 @@ When the work is many similar instances (such as a migration) or a hard research
 
 ## Companion skills
 
-If installed, use these where they fit: grilling (when questioning the user), domain-modeling (glossary and ADRs), tdd (meeting acceptance checks), code-review (the two-axis review), prototype (settling choices reading cannot), handoff (serial phases), and retro (improving the setup after a run). The harness works without them.
+If installed, use these where they fit: grilling (when questioning the user), domain-modeling (glossary and ADRs), tdd (meeting acceptance checks), code-review (the two-axis review), prototype (settling choices reading cannot), handoff (serial phases), and retro (improving the setup after a run). They come from [mattpocock/skills](https://github.com/mattpocock/skills). The harness works without them.
