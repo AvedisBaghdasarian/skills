@@ -14,13 +14,15 @@ Dates are `YYYY-MM-DD`; timestamps are ISO 8601 in UTC (`2026-10-26T06:00:00Z`).
 | `.github/` | Human only | Protected |
 | `ops/goals.yaml` | Manager proposes | Pull request; human merges |
 | `ops/procedures/` | Manager proposes | Pull request; human merges |
-| `ops/backlog.yaml` | Manager | Committed by the runner |
-| `ops/register.yaml` | Manager and runner | Committed by the runner |
-| `ops/contracts/` | Manager | Committed by the runner |
-| `ops/progress.md` | Manager and runner | Committed by the runner; append-only |
-| `ops/incidents/` | Manager and runner | Committed by the runner; never deleted |
-| `ops/reports/` | Manager and reviewer | Committed by the runner |
-| `docs/adr/` | Manager and workers | Committed by the runner, or with the worker's pull request |
+| `ops/backlog.yaml` | Manager | Committed by the session |
+| `ops/register.yaml` | Manager and runner | Committed by the session |
+| `ops/contracts/` | Manager | Committed by the session |
+| `ops/progress.md` | Manager and runner | Committed by the session; append-only |
+| `ops/incidents/` | Manager and runner | Committed by the session; never deleted |
+| `ops/reports/` | Manager and reviewer | Committed by the session |
+| `docs/adr/` | Manager and workers | Committed by the session, or with the worker's pull request |
+
+Each session commits in its own worktree. The runner validates everything since the session's base commit and publishes it to the state branch: `state_branch`, or `fallback_branch` when that push is refused, for example by branch protection. On the fallback branch the runner keeps one pull request into main open, merges main into the branch before each loop, and keeps working from it until a human deletes it. Approval paths never go to the state branch: the runner moves them to their own pull request into main.
 
 **Rules:** a session that changes a protected path, or anything outside `ops/` and `docs/adr/`, is rejected: work belongs to workers. In `shadow` mode, a session may change only `ops/reports/` and `ops/progress.md`. In `dispatch` mode, `ops/goals.yaml` may not change.
 
@@ -29,7 +31,8 @@ Dates are `YYYY-MM-DD`; timestamps are ISO 8601 in UTC (`2026-10-26T06:00:00Z`).
 ```yaml
 mode: shadow                  # shadow | dispatch | propose
 main_branch: main
-direct_push: true             # false: manager files go through an auto-merging pull request
+state_branch: main            # where the manager commits its own files
+fallback_branch: manager/state  # used when a push to state_branch is refused
 loops:
   triage:  { max_time: 10m }
   daily:   { max_time: 20m }

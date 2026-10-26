@@ -8,7 +8,9 @@ export type Loop = (typeof LOOPS)[number];
 export interface Policy {
 	mode: "shadow" | "dispatch" | "propose";
 	main_branch: string;
-	direct_push: boolean;
+	/** Where the manager commits. Falls back to fallback_branch when a push here is refused. */
+	state_branch: string;
+	fallback_branch: string;
 	loops: Record<Loop, { max_time: string; model?: string | null }>;
 	budgets: { daily_dispatch_minutes: number; approval_threshold_minutes: number };
 	limits: { max_concurrent_work: number; stale_work_days: number; backlog_aging_weeks: number; max_open_goals: number };
@@ -64,7 +66,8 @@ export interface WorkItem {
 export const DEFAULT_POLICY: Policy = {
 	mode: "shadow",
 	main_branch: "main",
-	direct_push: true,
+	state_branch: "main",
+	fallback_branch: "manager/state",
 	loops: {
 		triage: { max_time: "10m" },
 		daily: { max_time: "20m" },
@@ -175,6 +178,12 @@ function merge<T>(base: T, over: unknown): T {
 
 export function loadPolicy(org: string): Policy {
 	return merge(DEFAULT_POLICY, readYaml(org, PATHS.policy));
+}
+
+/** The policy as committed at a ref, so a loop never runs on uncommitted or unmerged policy. */
+export function loadPolicyAt(org: string, ref: string): Policy {
+	const r = run(["git", "show", `${ref}:${PATHS.policy}`], org);
+	return merge(DEFAULT_POLICY, r.code === 0 ? Bun.YAML.parse(r.stdout) : null);
 }
 
 export function loadGoals(org: string): Goal[] {

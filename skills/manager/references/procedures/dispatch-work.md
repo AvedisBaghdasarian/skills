@@ -1,6 +1,6 @@
 # Dispatch work
 
-For one approved backlog item:
+For one approved backlog item. The item goes to one worker, a node-harness session acting as its top-level node. Do not split it into parallel parts: the worker divides the work itself if its split checks pass.
 
 1. **Confirm approval:** `approval` is `goal` (an active goal, within the approval threshold) or `human`.
 2. **Confirm budget:** running plus ready items stay within `max_concurrent_work`, and today's dispatched minutes plus this item's `max_time_minutes` stay within `daily_dispatch_minutes`.

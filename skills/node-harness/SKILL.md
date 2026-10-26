@@ -77,7 +77,8 @@ If you are at the maximum recursion depth, do not divide; continue serially.
 - **Commit shared interfaces as code first** when siblings depend on the same interface, so nobody builds against a guess.
 - **Plan and synthesize; do not also implement.** Mixing roles is how orchestrators lose track.
 - **Name the skill in every child's task text.** Begin each with: "Use the node-harness skill. You are a node; this is your contract." Then give the contract. Children inherit no history, and naming the skill makes loading reliable.
-- **Give writers isolated workspaces and disjoint file ownership.** Overlapping writers produce conflicting patches.
+- **Give every child its own worktree and branch, and disjoint file ownership.** Overlapping writers produce conflicting patches. Each child commits on its own branch.
+- **Merging is the parent's job.** The dividing node merges each child's branch into its own, resolves conflicts, and runs its integration checks on the result. A child never merges into its parent's branch or anyone else's.
 - **Replan as results arrive.** Dispatch independent children in parallel; as each result comes back, add, revise or cancel tasks rather than following the original plan blindly.
 
 ## Contracts and returns

@@ -1,6 +1,6 @@
 # Loops
 
-Each loop is a fresh headless session started by `run-loop.ts`. Before your session the runner has taken the lock, pulled the latest state and reconciled the register; its notes are in your prompt. After your session it validates, commits and dispatches.
+Each loop is a fresh headless session started by `run-loop.ts`, in its own worktree based on the state branch. Before your session the runner has taken the lock, fetched the latest state and reconciled the register; its notes are in your prompt. You commit your changes in the worktree. After your session the runner validates them, publishes them and dispatches.
 
 | Loop | Trigger | Job |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ Each loop is a fresh headless session started by `run-loop.ts`. Before your sess
 
 1. **Stuck work.** For each register item that is `stalled`, or `running` longer than `stale_work_days`: retry it once by setting it back to `ready` with a note, or cancel it with a reason and return its backlog item to `approved`. A second stall is cancelled, and the cause goes in the backlog.
 2. **Work in review.** Items in `review` wait for their pull request. Do nothing unless CI failed; then set `failed` and add a backlog item for the fix if it is not obvious from the contract.
-3. **Dispatch.** Follow the **dispatch-work** procedure for the highest-priority `approved` backlog items, while running plus ready items stay within `max_concurrent_work` and today's dispatched minutes stay within `daily_dispatch_minutes`. For each, write the contract file and add a register item with status `ready`. The runner starts the workers after your session.
+3. **Dispatch.** Each approved item goes, whole, to one worker. Follow the **dispatch-work** procedure for the highest-priority `approved` backlog items, while running plus ready items stay within `max_concurrent_work` and today's dispatched minutes stay within `daily_dispatch_minutes`. For each, write the contract file and add a register item with status `ready`. The runner starts the workers after your session.
 4. Items that cannot be dispatched for budget or concurrency stay `approved`; note them in the progress entry.
 
 **Writes:** register, contracts, backlog statuses, progress. In shadow mode, write the dispatch plan as `ops/reports/<date>-daily.md` instead.

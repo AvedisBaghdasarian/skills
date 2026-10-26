@@ -3,7 +3,7 @@
 // Usage: bun reconcile.ts [--org <dir>] [--fix]
 // Without --fix, prints the mismatches. With --fix, corrects the register, logs to
 // the progress file, and turns a mismatch that repeats into a backlog item.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
 	appendProgress,
@@ -16,6 +16,7 @@ import {
 	now,
 	orgRoot,
 	pidAlive,
+	run,
 	runtimeDir,
 	saveBacklog,
 	saveRegister,
@@ -45,6 +46,17 @@ export function sessionAlive(org: string, policy: Policy, item: WorkItem): boole
 	);
 	if (!runs) return null;
 	return runs.some(r => r.displayTitle.includes(item.id) && ["queued", "in_progress", "waiting", "pending", "requested"].includes(r.status));
+}
+
+/** Removes a finished local worker's worktree and session record, once its process has exited. */
+function removeFinishedWorker(org: string, policy: Policy, w: WorkItem) {
+	if (policy.worker.backend !== "local") return;
+	const file = join(runtimeDir(org, "sessions"), `${w.id}.json`);
+	if (!existsSync(file)) return;
+	const { pid, tree } = JSON.parse(readFileSync(file, "utf8")) as { pid: number; tree: string };
+	if (pidAlive(pid)) return;
+	run(["git", "worktree", "remove", "--force", tree], org);
+	rmSync(file);
 }
 
 function findPr(org: string, branch: string): Pr | null | undefined {
@@ -103,6 +115,7 @@ export function reconcile(org: string, fix: boolean): Reconciliation {
 	};
 
 	for (const w of register) {
+		if (["merged", "failed", "cancelled"].includes(w.status)) removeFinishedWorker(org, policy, w);
 		if (["ready", "cancelled", "failed"].includes(w.status)) continue;
 		if (w.status === "merged" && w.finished && Date.now() - Date.parse(w.finished) > recentMs) continue;
 

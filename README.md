@@ -38,7 +38,9 @@ node-harness uses these if they are installed and works without them. All are fr
 
 Runs an ongoing operation, such as a software shop or a research group, from records in its own repository. Short headless loops (triage, daily, weekly, monthly) reconcile state with ground truth, prioritize work, propose goals, and dispatch work to node-harness workers. The human approves anything consequential by merging the manager's pull requests.
 
-- Requires: Bun 1.2.21 or later, git, an authenticated `gh`, `omp`, and the node-harness skill from this repository. No npm packages.
+- Requires: Bun 1.2.21 or later, git, an authenticated `gh`, `omp`, and the node-harness skill from this repository. No npm packages. The organization's repository needs an `origin` remote.
+- Every session works in its own worktree and commits there. The manager publishes to `main`, or to `manager/state` with a pull request when `main` is protected.
+- It is not a swarm: each piece of work goes, whole, to one node-harness session, which decides whether to divide it.
 - Set it up: create the organization's repository, do the human-only setup in `skills/manager/references/charter-session.md`, then ask your agent to hold the manager's charter session.
 - Run a loop: `bun skills/manager/scripts/run-loop.ts daily` from the organization's repository, on a schedule from cron or GitHub Actions. Triage takes `--event <payload.json>`.
 - Tune it: every number lives in the organization's `ops/policy.yaml`, which only the human edits.
