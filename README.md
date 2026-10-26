@@ -33,3 +33,12 @@ node-harness uses these if they are installed and works without them. All are fr
 | prototype | Settling choices reading cannot | [`skills/engineering/prototype`](https://github.com/mattpocock/skills/tree/main/skills/engineering/prototype) |
 | handoff | Serial phases | [`skills/productivity/handoff`](https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff) |
 | retro | Improving the setup after a run | [`skills/engineering/retro`](https://github.com/mattpocock/skills/tree/main/skills/engineering/retro) |
+
+### manager
+
+Runs an ongoing operation, such as a software shop or a research group, from records in its own repository. Short headless loops (triage, daily, weekly, monthly) reconcile state with ground truth, prioritize work, propose goals, and dispatch work to node-harness workers. The human approves anything consequential by merging the manager's pull requests.
+
+- Requires: Bun 1.2.21 or later, git, an authenticated `gh`, `omp`, and the node-harness skill from this repository. No npm packages.
+- Set it up: create the organization's repository, do the human-only setup in `skills/manager/references/charter-session.md`, then ask your agent to hold the manager's charter session.
+- Run a loop: `bun skills/manager/scripts/run-loop.ts daily` from the organization's repository, on a schedule from cron or GitHub Actions. Triage takes `--event <payload.json>`.
+- Tune it: every number lives in the organization's `ops/policy.yaml`, which only the human edits.
