@@ -4,7 +4,7 @@ Each loop is a fresh headless session started by `run-loop.ts`, in its own workt
 
 | Loop | Trigger | Job |
 | --- | --- | --- |
-| Triage | An event: CI failure, new issue, worker return | Ignore it, add it to the backlog, update the register, or open an incident |
+| Triage | An event, such as a failed build, a new request, or a worker finishing | Ignore it, add it to the backlog, update the register, or open an incident |
 | Daily | Schedule | Unblock or cancel stuck work; mark ready work for dispatch within budget |
 | Weekly | Schedule | Review goals against the scoreboard; reprioritize the backlog; propose goals; report |
 | Monthly | Schedule | Retrospective; propose procedure changes; report to the human |
@@ -17,7 +17,7 @@ Each loop is a fresh headless session started by `run-loop.ts`, in its own workt
 2. Do exactly one of:
    - **Ignore** it, with one line in the progress entry saying why.
    - **Add a backlog item** with the event as its source and evidence.
-   - **Update a register item**, for example a worker's pull request was opened or its CI failed. Record what the tool says, not what the event text claims.
+   - **Update a register item**, for example a worker's branch was pushed or its build failed. Record what git or the project's own tools say, not what the event text claims.
    - **Open an incident** if it meets the criteria in the **declare-incident** procedure.
 3. Do not dispatch. The daily loop dispatches.
 
@@ -28,7 +28,7 @@ Each loop is a fresh headless session started by `run-loop.ts`, in its own workt
 **Reads:** everything in the session start procedure, plus the reconciliation notes.
 
 1. **Stuck work.** For each register item that is `stalled`, or `running` longer than `stale_work_days`: retry it once by setting it back to `ready` with a note, or cancel it with a reason and return its backlog item to `approved`. A second stall is cancelled, and the cause goes in the backlog.
-2. **Work in review.** Items in `review` wait for their pull request. Do nothing unless CI failed; then set `failed` and add a backlog item for the fix if it is not obvious from the contract.
+2. **Work in review.** Items in `review` have pushed branches waiting to reach main. Do nothing unless the branch fails its contract's checks; then set `failed` and add a backlog item for the fix if it is not obvious from the contract.
 3. **Dispatch.** Each approved item goes, whole, to one worker. Follow the **dispatch-work** procedure for the highest-priority `approved` backlog items, while running plus ready items stay within `max_concurrent_work` and today's dispatched minutes stay within `daily_dispatch_minutes`. For each, write the contract file and add a register item with status `ready`. The runner starts the workers after your session.
 4. Items that cannot be dispatched for budget or concurrency stay `approved`; note them in the progress entry.
 
@@ -41,7 +41,7 @@ Each loop is a fresh headless session started by `run-loop.ts`, in its own workt
 1. **Goals.** For each active goal, compare the scoreboard against its target and deadline. Mark it `met` only through the **close-goal** procedure. Mark goals that are behind as at risk in the report, with the evidence.
 2. **Backlog.** Follow the **prioritize-backlog** procedure: score new items, rescore items whose evidence changed, drop items past `backlog_aging_weeks` that nobody would miss (with a reason), and note items that keep reappearing.
 3. **Goal proposals.** Propose new or changed goals in `ops/goals.yaml` with status `proposed`, only from evidence: scoreboard metrics drifting from target, repeated incidents, aging or reappearing backlog items, requests from the human, findings from the improver. Each proposal states its evidence, a measurable target on a scoreboard metric, an estimated cost, and what it displaces. A proposal that cannot name evidence is dropped. Active plus proposed goals stay within `max_open_goals`.
-4. **Report.** Write `ops/reports/<date>-weekly.md`: goals and their status, backlog changes, proposals and their evidence, incidents, cost. Claims cite a file, a pull request, a CI run or a scoreboard number. A reviewer on a different model checks it after your session.
+4. **Report.** Write `ops/reports/<date>-weekly.md`: goals and their status, backlog changes, proposals and their evidence, incidents, cost. Claims cite a file, a commit, a branch or a scoreboard number. A reviewer on a different model checks it after your session.
 
 **Writes:** goals (as a proposal), backlog, report, progress.
 
@@ -50,8 +50,8 @@ Each loop is a fresh headless session started by `run-loop.ts`, in its own workt
 **Reads:** the month's progress, reports, incidents, reviewer findings, and register history (`git log -p ops/register.yaml`).
 
 1. **Retrospective.** What went wrong, how often, and which procedure allowed it: reconciliation mismatches, stalls, failed work, reviewer findings, rejected proposals.
-2. **Procedure proposals.** Edit `ops/procedures/` (copying the skill's default first if the organization has none) for changes the evidence supports. These become a pull request.
-3. **Recommendations** for anything you cannot change yourself (charter, policy, scoreboard, workflows) go in the report, with evidence.
+2. **Procedure proposals.** Edit `ops/procedures/` (copying the skill's default first if the organization has none) for changes the evidence supports. These go on a proposal branch.
+3. **Recommendations** for anything you cannot change yourself (charter, policy, scoreboard, scheduler setup) go in the report, with evidence.
 4. **Report.** Write `ops/reports/<date>-monthly.md` for the human: outcomes against goals, cost, incidents, what changed, what you propose. Lead with what needs their decision.
 
 **Writes:** procedures (as a proposal), report, progress.

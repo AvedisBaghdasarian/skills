@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Runs one manager loop. Every loop, from cron or a workflow, goes through here.
+// Runs one manager loop. Every loop, whatever schedules it, goes through here.
 // Usage: bun run-loop.ts <triage|daily|weekly|monthly> [--org <dir>] [--event <file>]
 //
 // Every session works in its own worktree; the checkout you run this from is never
@@ -8,13 +8,14 @@
 // 1. Take the lock.  2. Fetch, open a worktree on the state branch, reconcile.
 // 3. Start `omp -p` with the loop's prompt and budget; the session commits its work.
 // 4. Validate everything since the base commit.  5. Publish: the manager's files to the
-// state branch, approval paths as a pull request to main; or reset and record an incident.
+// state branch, approval paths on a proposal branch; or reset and record an incident.
 // 6. Review weekly and monthly reports on a different model.  7. Dispatch ready work, each
 // worker in its own worktree.  8. Remove the worktree and release the lock.
 //
 // Publishing pushes to state_branch (main by default). If that push is refused, for
-// example by branch protection, the same commits go to fallback_branch with a pull
-// request into main, and later loops work from that branch.
+// example by branch protection, the same commits go to fallback_branch, and later loops
+// work from that branch until a human merges it into main and deletes it. Only git is
+// used: how branches are reviewed and merged is up to the people and agents involved.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import {
@@ -92,14 +93,6 @@ function commitAll(tree: string, message: string): boolean {
 	return true;
 }
 
-function ensurePr(tree: string, head: string, base: string, title: string, body: string) {
-	const open = run(["gh", "pr", "list", "--head", head, "--base", base, "--state", "open", "--json", "number", "--jq", "length"], tree);
-	if (open.code === 0 && open.stdout.trim() !== "0") return;
-	const pr = run(["gh", "pr", "create", "--base", base, "--head", head, "--title", title, "--body", body], tree);
-	if (pr.code === 0) log(`opened ${pr.stdout.trim()}`);
-	else log(`could not open a pull request from ${head} to ${base}: ${pr.stderr.trim()}`);
-}
-
 /** The branch the manager commits to, for one run. Publishing may switch it to the fallback. */
 class StateBranch {
 	name: string;
@@ -115,20 +108,16 @@ class StateBranch {
 
 	/** Pushes the worktree's HEAD to the state branch, falling back when the push is refused. */
 	publish(tree: string) {
-		if (run(["git", "push", "-q", "origin", `HEAD:refs/heads/${this.name}`], tree).code === 0) {
-			if (!this.isMain) this.keepPrOpen(tree);
-			return;
-		}
+		if (run(["git", "push", "-q", "origin", `HEAD:refs/heads/${this.name}`], tree).code === 0) return;
 		if (!this.isMain) throw new Error(`push to ${this.name} was refused`);
-		log(`push to ${this.name} refused; committing to ${this.policy.fallback_branch} instead`);
+		const from = this.name;
 		this.name = this.policy.fallback_branch;
+		log(`push to ${from} refused; committing to ${this.name} instead`);
+		appendProgress(tree, `${today()} runner`, [
+			`Push to ${from} was refused, so the manager now commits to ${this.name}. Merge ${this.name} into ${from} to bring it up to date; the manager keeps working from ${this.name} until it is deleted.`,
+		]);
+		commitAll(tree, `manager: move state to ${this.name}`);
 		git(tree, "push", "-q", "origin", `HEAD:refs/heads/${this.name}`);
-		this.keepPrOpen(tree);
-	}
-
-	private keepPrOpen(tree: string) {
-		ensurePr(tree, this.name, this.policy.main_branch, "manager: state updates",
-			"The manager's own state files (register, backlog, progress, incidents, reports). It commits here because it cannot push to the main branch. Merge to bring main up to date; the manager keeps working from this branch.");
 	}
 }
 
@@ -180,9 +169,8 @@ function loopPrompt(tree: string, loop: Loop, policy: Policy, branch: string, no
 
 // --- Proposals --------------------------------------------------------------
 
-/** Opens a pull request to main carrying the given file contents (null deletes). */
-function propose(org: string, policy: Policy, loop: Loop, contents: Map<string, Buffer | null>) {
-	const branch = `manager/proposal-${loop}-${stamp()}`;
+/** Pushes a branch off main carrying the given file contents (null deletes). The human merges it to approve. */
+function propose(org: string, policy: Policy, loop: Loop, branch: string, contents: Map<string, Buffer | null>): boolean {
 	const tree = addWorktree(org, `proposal-${loop}`, `origin/${policy.main_branch}`);
 	try {
 		for (const [p, content] of contents) {
@@ -192,11 +180,16 @@ function propose(org: string, policy: Policy, loop: Loop, contents: Map<string, 
 				writeFileSync(join(tree, p), content);
 			}
 		}
-		if (!commitAll(tree, `manager: ${loop} loop proposals ${today()}`)) return;
+		const message = [
+			`manager: ${loop} loop proposals ${today()}`,
+			"",
+			`Proposed by the ${loop} loop. Approve by merging into ${policy.main_branch}; delete the branch to reject.`,
+			"Evidence for each change is in the latest report under ops/reports/.",
+		].join("\n");
+		if (!commitAll(tree, message)) return false;
 		git(tree, "push", "-q", "origin", `HEAD:refs/heads/${branch}`);
-		ensurePr(tree, branch, policy.main_branch, `manager: ${loop} loop proposals ${today()}`,
-			[`Proposed by the ${loop} loop. Approve by merging; close to reject.`, "", "Evidence for each change is in the diff and in the latest report under `ops/reports/`."].join("\n"));
 		log(`proposed ${[...contents.keys()].join(", ")} on ${branch}`);
+		return true;
 	} finally {
 		removeWorktree(org, tree);
 	}
@@ -212,7 +205,7 @@ function reviewReports(org: string, tree: string, policy: Policy, state: StateBr
 		const prompt = [
 			`You are reviewing a report written by an AI manager: ${report}.`,
 			"You share no context with it. Your only job is to find errors and unsupported claims.",
-			"For each claim, check it against the repository files, git history and `gh` (pull requests, CI). List claims that are wrong, unsupported, or cite nothing.",
+			"For each claim, check it against the repository files and git history. List claims that are wrong, unsupported, or cite nothing.",
 			`Write your findings to ${reviewPath} and change nothing else. Do not commit.`,
 		].join("\n");
 		runSession(org, tree, `review-${basename(report, ".md")}`, prompt, "15m", policy.review.model);
@@ -238,11 +231,12 @@ function workerPrompt(stateTree: string, w: WorkItem): string {
 		"",
 		readFileSync(join(stateTree, w.contract), "utf8").trim(),
 		"",
-		`This directory is your own worktree on branch ${w.branch}. When your checks pass, commit, push the branch, and open a pull request with \`gh pr create\` titled "${w.id}: ${w.title}". Do not merge it.`,
+		`This directory is your own worktree on branch ${w.branch}. Commit your work there, starting each commit message with "${w.id}:", and push the branch to origin when your checks pass. Do not merge it into the main branch; propose it for review the way this project normally does.`,
 	].join("\n");
 }
 
-function startLocalWorker(org: string, stateTree: string, policy: Policy, w: WorkItem) {
+/** Starts a detached worker in its own worktree; returns the commit it starts from. */
+function startLocalWorker(org: string, stateTree: string, policy: Policy, w: WorkItem): string {
 	const sessions = runtimeDir(org, "sessions");
 	const tree = addWorktree(org, w.id, `origin/${policy.main_branch}`, w.branch);
 	const promptFile = join(sessions, `${w.id}.prompt.md`);
@@ -253,10 +247,7 @@ function startLocalWorker(org: string, stateTree: string, policy: Policy, w: Wor
 	// Detach so the worker outlives this loop; the shell prints its pid.
 	const pid = Number(must(["sh", "-c", 'log=$1; shift; setsid "$@" >"$log" 2>&1 </dev/null & echo $!', "sh", join(sessions, `${w.id}.log`), ...cmd], tree));
 	writeFileSync(join(sessions, `${w.id}.json`), JSON.stringify({ pid, tree, started: now() }));
-}
-
-function startActionsWorker(tree: string, policy: Policy, w: WorkItem) {
-	must(["gh", "workflow", "run", policy.worker.workflow, "--ref", policy.main_branch, "-f", `item=${w.id}`], tree);
+	return git(tree, "rev-parse", "HEAD");
 }
 
 function dispatch(org: string, tree: string, policy: Policy, state: StateBranch) {
@@ -270,8 +261,7 @@ function dispatch(org: string, tree: string, policy: Policy, state: StateBranch)
 		if (running >= policy.limits.max_concurrent_work) break;
 		if (used + w.max_time_minutes > policy.budgets.daily_dispatch_minutes) continue;
 		try {
-			if (policy.worker.backend === "actions") startActionsWorker(tree, policy, w);
-			else startLocalWorker(org, tree, policy, w);
+			w.base = startLocalWorker(org, tree, policy, w);
 		} catch (e) {
 			w.notes = `Dispatch failed ${now()}: ${(e as Error).message}`;
 			continue;
@@ -320,18 +310,22 @@ function runLoop(org: string, tree: string, loop: Loop, event: string | null, st
 		return;
 	}
 
-	// Set proposals aside: they go to main as a pull request, never through the state branch.
+	// Set proposals aside: they go on their own branch off main, never through the state branch.
 	const proposals = new Map(v.approvalPaths.map(p => [p, existsSync(join(tree, p)) ? readFileSync(join(tree, p)) : null]));
 	for (const p of v.approvalPaths) {
 		if (run(["git", "cat-file", "-e", `${base}:${p}`], tree).code === 0) git(tree, "checkout", "-q", base, "--", p);
 		else rmSync(join(tree, p), { force: true });
 	}
-	if (session.costUsd !== null) appendProgress(tree, `${today()} ${loop} (runner)`, [`Session cost $${session.costUsd.toFixed(2)}.`]);
+	const runnerNotes: string[] = [];
+	if (session.costUsd !== null) runnerNotes.push(`Session cost $${session.costUsd.toFixed(2)}.`);
+	const proposalBranch = `manager/proposal-${loop}-${stamp()}`;
+	if (proposals.size && propose(org, policy, loop, proposalBranch, proposals))
+		runnerNotes.push(`Proposed changes to ${[...proposals.keys()].join(", ")} are on branch ${proposalBranch}. Merge it into ${policy.main_branch} to approve; delete it to reject.`);
+	if (runnerNotes.length) appendProgress(tree, `${today()} ${loop} (runner)`, runnerNotes);
 	// The session's commits are kept as it made them; the runner's adjustments go on top.
 	const sessionCommits = Number(git(tree, "rev-list", "--count", `${base}..HEAD`));
-	const adjusted = commitAll(tree, `manager: ${loop} loop ${today()}${proposals.size ? " (proposals moved to a pull request)" : ""}`);
+	const adjusted = commitAll(tree, `manager: ${loop} loop ${today()}${proposals.size ? " (proposals moved to their own branch)" : ""}`);
 	if (sessionCommits > 0 || adjusted) state.publish(tree);
-	if (proposals.size) propose(org, policy, loop, proposals);
 	log(`${loop} loop published ${v.directPaths.length} changed paths to ${state.name} (${v.approvalPaths.length} proposed)`);
 
 	policy = loadPolicy(tree);

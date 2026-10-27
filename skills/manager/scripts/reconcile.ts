@@ -1,14 +1,17 @@
 #!/usr/bin/env bun
-// Compares the register with ground truth: pull requests, CI and worker sessions.
+// Compares the register with ground truth from git and the worker sessions.
 // Usage: bun reconcile.ts [--org <dir>] [--fix]
 // Without --fix, prints the mismatches. With --fix, corrects the register, logs to
 // the progress file, and turns a mismatch that repeats into a backlog item.
+//
+// A work item's branch tells its story: pushed with commits beyond its base means the
+// worker delivered; reachable from main (or a commit on main starting with the item's
+// id, for squash merges) means merged. Run `git fetch` first; run-loop.ts does.
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
 	appendProgress,
 	args,
-	ghJson,
 	loadBacklog,
 	loadPolicy,
 	loadRegister,
@@ -25,32 +28,16 @@ import {
 	type WorkItem,
 } from "./lib";
 
-interface Pr {
-	number: number;
-	state: "OPEN" | "CLOSED" | "MERGED";
-	mergedAt: string | null;
+/** Whether the worker process for an item is still running. */
+export function sessionAlive(org: string, item: WorkItem): boolean {
+	const file = join(runtimeDir(org, "sessions"), `${item.id}.json`);
+	if (!existsSync(file)) return false;
+	const { pid } = JSON.parse(readFileSync(file, "utf8")) as { pid: number };
+	return pidAlive(pid);
 }
 
-type Checks = "pass" | "fail" | "pending" | "none";
-
-/** Whether a worker session is still running, or null when that cannot be determined. */
-export function sessionAlive(org: string, policy: Policy, item: WorkItem): boolean | null {
-	if (policy.worker.backend === "local") {
-		const file = join(runtimeDir(org, "sessions"), `${item.id}.json`);
-		if (!existsSync(file)) return false;
-		const { pid } = JSON.parse(readFileSync(file, "utf8")) as { pid: number };
-		return pidAlive(pid);
-	}
-	const runs = ghJson<{ displayTitle: string; status: string }[]>(
-		org, "run", "list", "--workflow", policy.worker.workflow, "--json", "displayTitle,status", "--limit", "100",
-	);
-	if (!runs) return null;
-	return runs.some(r => r.displayTitle.includes(item.id) && ["queued", "in_progress", "waiting", "pending", "requested"].includes(r.status));
-}
-
-/** Removes a finished local worker's worktree and session record, once its process has exited. */
-function removeFinishedWorker(org: string, policy: Policy, w: WorkItem) {
-	if (policy.worker.backend !== "local") return;
+/** Removes a finished worker's worktree and session record, once its process has exited. */
+function removeFinishedWorker(org: string, w: WorkItem) {
 	const file = join(runtimeDir(org, "sessions"), `${w.id}.json`);
 	if (!existsSync(file)) return;
 	const { pid, tree } = JSON.parse(readFileSync(file, "utf8")) as { pid: number; tree: string };
@@ -59,17 +46,19 @@ function removeFinishedWorker(org: string, policy: Policy, w: WorkItem) {
 	rmSync(file);
 }
 
-function findPr(org: string, branch: string): Pr | null | undefined {
-	const prs = ghJson<Pr[]>(org, "pr", "list", "--head", branch, "--state", "all", "--json", "number,state,mergedAt", "--limit", "1");
-	return prs === null ? undefined : (prs[0] ?? null);
-}
+const rev = (org: string, ref: string) => {
+	const r = run(["git", "rev-parse", "--verify", "-q", `${ref}^{commit}`], org);
+	return r.code === 0 ? r.stdout.trim() : null;
+};
+const isAncestor = (org: string, a: string, b: string) => run(["git", "merge-base", "--is-ancestor", a, b], org).code === 0;
 
-function prChecks(org: string, pr: number): Checks {
-	const checks = ghJson<{ bucket: string }[]>(org, "pr", "checks", String(pr), "--json", "bucket");
-	if (!checks || checks.length === 0) return "none";
-	if (checks.some(c => c.bucket === "fail" || c.bucket === "cancel")) return "fail";
-	if (checks.some(c => c.bucket === "pending")) return "pending";
-	return "pass";
+/** Whether the item's work reached main: by merge or fast-forward, or by a squash commit naming its id. */
+function mergedIntoMain(org: string, policy: Policy, w: WorkItem, head: string | null): boolean {
+	const main = `origin/${policy.main_branch}`;
+	if (head && head !== w.base && isAncestor(org, head, main)) return true;
+	const since = w.base ? [`${w.base}..${main}`] : [main];
+	// Workers start commit messages with the item id; the manager's own commits start with "manager:".
+	return run(["git", "log", "--format=%H", "-E", `--grep=^${w.id}:`, ...since], org).stdout.trim() !== "";
 }
 
 export interface Reconciliation {
@@ -85,7 +74,6 @@ export function reconcile(org: string, fix: boolean): Reconciliation {
 	let changed = false;
 	let backlogChanged = false;
 	const staleMs = policy.limits.stale_work_days * 86_400_000;
-	const recentMs = 7 * 86_400_000;
 
 	const set = (w: WorkItem, status: string, why: string) => {
 		notes.push(`${w.id}: ${w.status} -> ${status} (${why})`);
@@ -115,52 +103,38 @@ export function reconcile(org: string, fix: boolean): Reconciliation {
 	};
 
 	for (const w of register) {
-		if (["merged", "failed", "cancelled"].includes(w.status)) removeFinishedWorker(org, policy, w);
-		if (["ready", "cancelled", "failed"].includes(w.status)) continue;
-		if (w.status === "merged" && w.finished && Date.now() - Date.parse(w.finished) > recentMs) continue;
+		if (["merged", "failed", "cancelled"].includes(w.status)) removeFinishedWorker(org, w);
+		if (!["running", "review", "stalled"].includes(w.status)) continue;
 
-		const pr = findPr(org, w.branch);
-		if (pr === undefined) {
-			notes.push(`${w.id}: could not reach GitHub; not reconciled`);
-			continue;
+		const head = rev(org, `origin/${w.branch}`);
+		if (head && head !== w.head) {
+			w.head = head;
+			changed = true;
 		}
-		if (pr) {
-			if (w.pr !== pr.number) {
-				w.pr = pr.number;
-				changed = true;
-			}
-			if (pr.state === "MERGED") {
-				const checks = prChecks(org, pr.number);
-				if (checks === "fail") mismatch(w, "merged_failing_ci", "failed", `pull request #${pr.number} merged with failing checks`);
-				else if (w.status !== "merged") {
-					set(w, "merged", `pull request #${pr.number} merged`);
-					w.finished = pr.mergedAt ?? now();
-				}
-			} else if (pr.state === "CLOSED") {
-				set(w, "failed", `pull request #${pr.number} closed without merging`);
-				w.finished = now();
-			} else if (w.status !== "review") {
-				set(w, "review", `pull request #${pr.number} open`);
-			}
+		if (mergedIntoMain(org, policy, w, head ?? w.head ?? null)) {
+			set(w, "merged", `work reached ${policy.main_branch}`);
+			w.finished = now();
 			continue;
 		}
 
-		// No pull request.
-		if (w.status === "merged" || w.status === "review") {
-			mismatch(w, `${w.status}_without_pr`, "stalled", `marked ${w.status} but branch ${w.branch} has no pull request`);
-			continue;
+		const delivered = head !== null && head !== w.base;
+		const alive = sessionAlive(org, w);
+		if (alive) {
+			if (w.status === "stalled") set(w, "running", "session is live");
+			else if (w.started && Date.now() - Date.parse(w.started) > staleMs) notes.push(`${w.id}: running for more than stale_work_days`);
+		} else if (delivered) {
+			if (w.status !== "review") set(w, "review", `worker exited; branch ${w.branch} pushed at ${head.slice(0, 8)}`);
+		} else if (w.status === "review") {
+			mismatch(w, "review_without_branch", "stalled", `marked review but branch ${w.branch} has no pushed work`);
+		} else if (w.status === "running") {
+			mismatch(w, "no_session", "stalled", "marked running with no live session and no pushed work");
 		}
-		const alive = sessionAlive(org, policy, w);
-		if (alive === null) notes.push(`${w.id}: could not check the worker session`);
-		else if (w.status === "running" && !alive) mismatch(w, "no_session", "stalled", "marked running with no live session and no pull request");
-		else if (w.status === "running" && w.started && Date.now() - Date.parse(w.started) > staleMs) notes.push(`${w.id}: running for more than stale_work_days`);
-		else if (w.status === "stalled" && alive) set(w, "running", "session is live");
 	}
 
 	if (fix && changed) {
 		saveRegister(org, register);
 		if (backlogChanged) saveBacklog(org, backlog);
-		appendProgress(org, `${today()} reconcile`, notes);
+		appendProgress(org, `${today()} reconcile`, notes.length ? notes : ["Recorded pushed branch heads."]);
 	}
 	return { notes, changed };
 }

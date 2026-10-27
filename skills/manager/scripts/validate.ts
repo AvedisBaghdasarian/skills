@@ -27,7 +27,7 @@ export interface Validation {
 	ok: boolean;
 	errors: string[];
 	changed: string[];
-	/** Changed paths that land through a pull request the human merges. */
+	/** Changed paths that land on a proposal branch the human merges. */
 	approvalPaths: string[];
 	/** Changed paths the runner commits directly. */
 	directPaths: string[];

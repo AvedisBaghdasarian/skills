@@ -15,7 +15,7 @@ export interface Policy {
 	budgets: { daily_dispatch_minutes: number; approval_threshold_minutes: number };
 	limits: { max_concurrent_work: number; stale_work_days: number; backlog_aging_weeks: number; max_open_goals: number };
 	review: { model: string | null };
-	worker: { backend: "local" | "actions"; workflow: string; model: string | null };
+	worker: { model: string | null };
 }
 
 export interface Goal {
@@ -56,7 +56,9 @@ export interface WorkItem {
 	created: string;
 	started?: string | null;
 	finished?: string | null;
-	pr?: number | null;
+	/** Commit the worker started from, and its branch head as last seen on origin. */
+	base?: string | null;
+	head?: string | null;
 	cost_usd?: number | null;
 	attempts?: number;
 	notes?: string | null;
@@ -77,7 +79,7 @@ export const DEFAULT_POLICY: Policy = {
 	budgets: { daily_dispatch_minutes: 240, approval_threshold_minutes: 120 },
 	limits: { max_concurrent_work: 5, stale_work_days: 2, backlog_aging_weeks: 4, max_open_goals: 5 },
 	review: { model: null },
-	worker: { backend: "local", workflow: "worker.yml", model: null },
+	worker: { model: null },
 };
 
 export const PATHS = {
@@ -96,7 +98,7 @@ export const PATHS = {
 
 /** Paths only the human changes. A session that touches one is rejected. */
 export const PROTECTED = [/^ops\/charter\.md$/, /^ops\/policy\.yaml$/, /^scoreboard\//, /^\.github\//];
-/** Paths the manager may change only through a pull request the human merges. */
+/** Paths the manager may change only through a proposal branch the human merges. */
 export const NEEDS_APPROVAL = [/^ops\/goals\.yaml$/, /^ops\/procedures\//];
 /** Paths the manager may change at all. Anything else is work, which belongs to workers. */
 export const MANAGER_WRITABLE = [/^ops\//, /^docs\/adr\//];
@@ -123,17 +125,6 @@ export function must(cmd: string[], cwd: string): string {
 
 export function git(org: string, ...args: string[]): string {
 	return must(["git", ...args], org);
-}
-
-/** `gh ... --json` parsed, or null if gh fails (no remote, no auth, no network). */
-export function ghJson<T>(org: string, ...args: string[]): T | null {
-	const r = run(["gh", ...args], org);
-	if (r.code !== 0) return null;
-	try {
-		return JSON.parse(r.stdout) as T;
-	} catch {
-		return null;
-	}
 }
 
 export function orgRoot(dir: string): string {

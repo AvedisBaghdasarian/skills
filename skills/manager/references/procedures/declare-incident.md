@@ -2,7 +2,7 @@
 
 **Criteria.** Open an incident when any of these holds:
 
-- The main branch is broken: CI failing on main, or a deploy unhealthy.
+- The main branch is broken: its build or tests failing, or a deploy unhealthy.
 - A budget was exceeded, or spend is outside what policy allows.
 - State is corrupt: the validator rejected a session, or reconciliation found the same mismatch twice.
 - Something the charter forbids happened or nearly happened.

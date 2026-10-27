@@ -12,17 +12,17 @@ Dates are `YYYY-MM-DD`; timestamps are ISO 8601 in UTC (`2026-10-26T06:00:00Z`).
 | `ops/policy.yaml` | Human only | Protected |
 | `scoreboard/` | Human only | Protected |
 | `.github/` | Human only | Protected |
-| `ops/goals.yaml` | Manager proposes | Pull request; human merges |
-| `ops/procedures/` | Manager proposes | Pull request; human merges |
+| `ops/goals.yaml` | Manager proposes | Proposal branch; human merges |
+| `ops/procedures/` | Manager proposes | Proposal branch; human merges |
 | `ops/backlog.yaml` | Manager | Committed by the session |
 | `ops/register.yaml` | Manager and runner | Committed by the session |
 | `ops/contracts/` | Manager | Committed by the session |
 | `ops/progress.md` | Manager and runner | Committed by the session; append-only |
 | `ops/incidents/` | Manager and runner | Committed by the session; never deleted |
 | `ops/reports/` | Manager and reviewer | Committed by the session |
-| `docs/adr/` | Manager and workers | Committed by the session, or with the worker's pull request |
+| `docs/adr/` | Manager and workers | Committed by the session, or on the worker's branch |
 
-Each session commits in its own worktree. The runner validates everything since the session's base commit and publishes it to the state branch: `state_branch`, or `fallback_branch` when that push is refused, for example by branch protection. On the fallback branch the runner keeps one pull request into main open, merges main into the branch before each loop, and keeps working from it until a human deletes it. Approval paths never go to the state branch: the runner moves them to their own pull request into main.
+Each session commits in its own worktree. The runner validates everything since the session's base commit and publishes it to the state branch: `state_branch`, or `fallback_branch` when that push is refused, for example by branch protection. On the fallback branch the runner merges main into the branch before each loop, and keeps working from it until a human merges it into main and deletes it. Approval paths never go to the state branch: the runner moves them to their own proposal branch off main, `manager/proposal-<loop>-<stamp>`, and names it in the progress log. The human approves by merging it and rejects by deleting it. Only git is used; whether anyone opens a pull request for a branch is up to them.
 
 **Rules:** a session that changes a protected path, or anything outside `ops/` and `docs/adr/`, is rejected: work belongs to workers. In `shadow` mode, a session may change only `ops/reports/` and `ops/progress.md`. In `dispatch` mode, `ops/goals.yaml` may not change.
 
@@ -50,12 +50,10 @@ limits:
 review:
   model: null                 # a different model for report review; null skips review
 worker:
-  backend: local              # local | actions
-  workflow: worker.yml        # actions backend only
   model: null
 ```
 
-Schedules (daily time, weekly day, monthly day) live in the scheduler: cron or `.github/workflows/`.
+Schedules (daily time, weekly day, monthly day) live in the scheduler, such as cron.
 
 ## `ops/goals.yaml`
 
@@ -81,8 +79,8 @@ goals:
 items:
   - id: B-0001
     title: Flaky checkout test blocks merges
-    source: issue#42           # issue#N | pr#N | incident:<file> | scoreboard:<metric> | human | improver | manager
-    evidence: Failed 6 of the last 20 CI runs on main
+    source: request:42         # request:<id> | branch:<name> | incident:<file> | scoreboard:<metric> | human | improver | manager
+    evidence: Failed 6 of the last 20 test runs on main
     goal: G-001                # or null
     size_minutes: 45
     score: { impact: 3, evidence: 3, cost: 2, urgency: 2, total: 10 }  # each 0 to 3
@@ -108,7 +106,8 @@ items:
     created: 2026-10-26T06:05:00Z
     started: 2026-10-26T06:06:00Z   # set by the runner
     finished: null
-    pr: null                   # pull request number, set by reconciliation
+    base: null                 # commit the worker started from, set by the runner
+    head: null                 # branch head on origin, set by reconciliation
     cost_usd: null
     attempts: 1
     notes: null
@@ -131,7 +130,7 @@ Constraints: patterns to follow; files the worker owns; out of scope
 Assumptions: including expected future direction
 ```
 
-The runner adds the branch name and the instruction to open a pull request.
+The runner adds the branch name and tells the worker to start commit messages with the item id and push the branch. How the branch is proposed for review is the worker's call, following the project's normal practice.
 
 ## `ops/progress.md`
 
@@ -140,7 +139,7 @@ Append-only. Each session adds one entry at the end:
 ```
 ## 2026-10-26 daily
 
-- Reconciled: W-0003 marked stalled (no live session, no pull request).
+- Reconciled: W-0003 marked stalled (no live session, no pushed work).
 - Dispatched: W-0004 (B-0012, 60 min). Today: 120 of 240 minutes.
 - Next session: W-0003 stalled twice; cancelled, cause added as B-0015.
 ```
