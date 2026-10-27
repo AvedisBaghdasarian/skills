@@ -1,0 +1,17 @@
+#!/bin/sh
+# Runs a manager script with OMP's own runtime: no separate Bun needed.
+# Usage: manager <run-loop|validate|reconcile> [args...]
+#
+# OMP's standalone binary embeds Bun and runs as Bun when BUN_BE_BUN=1, the same
+# way OMP runs its own helper scripts. If OMP was installed with Bun, bun is used.
+set -e
+dir=$(cd "$(dirname "$0")" && pwd)
+script=$1
+case "$script" in
+	run-loop|validate|reconcile) shift ;;
+	*) echo "usage: manager <run-loop|validate|reconcile> [args...]" >&2; exit 2 ;;
+esac
+if command -v bun >/dev/null 2>&1; then
+	exec bun "$dir/$script.ts" "$@"
+fi
+BUN_BE_BUN=1 exec "${MANAGER_OMP:-omp}" "$dir/$script.ts" "$@"

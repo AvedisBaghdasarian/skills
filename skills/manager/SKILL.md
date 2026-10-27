@@ -1,7 +1,7 @@
 ---
 name: manager
 description: Runs an ongoing operation, such as a software shop or a research group, from records in its organization repository through short scheduled loops (triage, daily, weekly, monthly), dispatching work to the node harness. Use only when a manager loop is requested by name ("run the daily loop", "manager triage this event"), when run-loop.ts starts a session, or when asked to set up a manager or hold its charter session. Not for doing the work itself.
-compatibility: "Requires Bun 1.2.21 or later, git, and omp. Dispatches work to the node-harness skill from the same repository."
+compatibility: "Requires git and omp. Scripts run on the Bun runtime built into omp. Dispatches work to the node-harness skill from the same repository."
 ---
 
 # Manager
@@ -55,10 +55,10 @@ If asked to set up a manager for an organization, or to hold its charter session
 
 ## Scripts
 
-Run by the scheduler, not by you during a loop:
+Run by the scheduler, not by you during a loop, through `scripts/manager <script> [args]`. It runs them on the Bun runtime built into omp, or on `bun` if installed.
 
 - `scripts/run-loop.ts <loop>`: the only way a loop runs. Takes the lock, opens your worktree, reconciles, starts your session, validates, publishes, dispatches.
 - `scripts/reconcile.ts`: compares the register with git and worker sessions.
 - `scripts/validate.ts`: checks the state files and what a session changed.
 
-You may run `bun <skill dir>/scripts/validate.ts` before finishing to check your own edits.
+You may run `<skill dir>/scripts/manager validate` before finishing to check your own edits.

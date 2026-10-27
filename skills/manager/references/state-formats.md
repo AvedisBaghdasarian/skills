@@ -175,7 +175,7 @@ Human-owned. The manager reads it.
 metrics:
   - id: lead_time_hours
     description: Hours from backlog approval to merged change, median over 4 weeks
-    command: bun scoreboard/lead-time.ts   # prints a number
+    command: scoreboard/lead-time.sh   # prints a number
 ```
 
 If the human's tooling writes `scoreboard/results.yaml` (`results: { <metric id>: { value: 42, at: 2026-10-26 } }`), loops read it instead of running commands.

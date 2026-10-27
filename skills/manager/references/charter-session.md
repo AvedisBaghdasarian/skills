@@ -7,7 +7,7 @@ Run once per organization, interactively with the human, after the repository ha
 Confirm with the human, and stop if any is missing:
 
 - [ ] The repository was created from the template and has `ops/` and `scoreboard/`.
-- [ ] `omp`, git and Bun 1.2.21 or later are installed, and git can push to the repository's `origin` with credentials scoped to the organization's repositories.
+- [ ] `omp` and git are installed, and git can push to the repository's `origin` with credentials scoped to the organization's repositories.
 - [ ] If the git host supports it, the main branch is protected so the manager cannot push to it. The manager then commits to `manager/state`, and only the human merges into main. Without protection, the validator is the only guard on human-only files.
 - [ ] Spending limits are set with the model provider.
 - [ ] The human has chosen where loops run: an always-on machine with cron, or another scheduler.
@@ -50,6 +50,6 @@ Propose 1 to 3 goals from the charter and the scoreboard's first numbers, in the
 ## 5. Commit and smoke test
 
 1. The human reviews the diff; commit it on a branch for them to merge.
-2. After the merge, run one daily loop in shadow mode: `bun <skill dir>/scripts/run-loop.ts daily`.
+2. After the merge, run one daily loop in shadow mode: `<skill dir>/scripts/manager run-loop daily`.
 3. Check with the human that it reconciled, validated and wrote a report and a progress entry, and that the report's plan is sensible.
 4. Then the human turns on the schedule.

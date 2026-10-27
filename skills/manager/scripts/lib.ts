@@ -1,4 +1,4 @@
-// Shared helpers for the manager scripts. Bun only; no dependencies.
+// Shared helpers for the manager scripts. Runs on Bun, including the runtime built into omp; no dependencies.
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 

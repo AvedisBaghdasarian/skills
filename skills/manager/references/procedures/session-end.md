@@ -2,5 +2,5 @@
 
 1. Append one entry to `ops/progress.md`: heading `## <date> <loop>`, then short bullets: what you did, what you found, what you could not do and why, and what the next session should know.
 2. Do not edit earlier entries.
-3. Run `bun <skill dir>/scripts/validate.ts` and fix what it reports.
+3. Run `<skill dir>/scripts/manager validate` and fix what it reports.
 4. Commit your changes in your worktree, then exit. The runner validates and publishes them.
